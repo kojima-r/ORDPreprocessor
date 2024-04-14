@@ -31,7 +31,7 @@ for i,r in df.iterrows():
     rid=r["reaction_id"]
     arr=[]
     try:
-        for j in range(74):
+        for j in range(len(df.columns)):
             rs="role"+str(j)
             ss="smiles"+str(j)
             if r[rs]=='REACTANT' and r[ss]!='NoData':
