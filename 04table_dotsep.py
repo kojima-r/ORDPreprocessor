@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 import glob
 import json
+import pickle
 import pandas as pd
-#rdkit関連のimport
+
 import rdkit
 from rdkit import rdBase, Chem
 from rdkit.Chem import PandasTools, AllChem
@@ -15,6 +13,7 @@ from rdkit import DataStructs
 from rdkit import RDLogger
 from rdkit.Chem import rdMolDescriptors
 RDLogger.DisableLog('rdApp.*')#エラーの非表示
+
 from multiprocessing import Pool
 
 def run(filename):
@@ -23,7 +22,6 @@ def run(filename):
     json_obj = json.load(json_open)
     return json_obj
 
-# In[2]:
 #ord_dataの読み込み
 files = glob.glob("./ord_data_json/*")
 print('Number of Files :', len(files))
@@ -33,11 +31,8 @@ jsons=list(p.map(run, files))
 print('FINISH')
 
 
-# In[6]:
-
-
 '''SMILES'''
-def Pick_inputSMILESandRole(reactions,i):
+def pick_inputSMILESandRole(reactions,i):
     smiles = []
     roles = []
     for key in reactions[i]['inputs'].keys():
@@ -64,40 +59,39 @@ def Pick_inputSMILESandRole(reactions,i):
             print(reactions[i]['inputs'][key])
     return smiles, roles
 
-def Pick_productSMILES(reactions,i):
+def pick_productSMILES(reactions,r_idx):
     smiles = []
     smile = 'NoData'
-    if 'products' not in reactions[i]['outcomes'][0]:
-        print(reactions[i]['outcomes'][0])
-        return smile
-    for m in range(len(reactions[i]['outcomes'][0]['products'][0]['identifiers'])):
-        check = reactions[i]['outcomes'][0]['products'][0]['identifiers'][m]['type']
+    if 'products' not in reactions[r_idx]['outcomes'][0]:
+        print(reactions[r_idx]['outcomes'][0])
+        return [smile]
+    for m in range(len(reactions[r_idx]['outcomes'][0]['products'][0]['identifiers'])):
+        check = reactions[r_idx]['outcomes'][0]['products'][0]['identifiers'][m]['type']
         if check == 'SMILES':
-            smile = reactions[i]['outcomes'][0]['products'][0]['identifiers'][m]['value']
+            smile = reactions[r_idx]['outcomes'][0]['products'][0]['identifiers'][m]['value']
         else:
             continue 
         smiles.append(smile)
     return smiles
 
-def PicK_smiles(reactions, i):
+def pick_smiles(reactions, r_idx):
     input_list = []
     role_list = []
     product_list = []
-    input_smiles_list, input_role_list = Pick_inputSMILESandRole(reactions,i)
+    input_smiles_list, input_role_list = pick_inputSMILESandRole(reactions,r_idx)
     for input_smiles, role in zip(input_smiles_list, input_role_list):
-        smiles_list = Dot_separate(input_smiles)
+        smiles_list = split_smarts(input_smiles)
         input_list.extend(smiles_list)
-        for i in range(len(smiles_list)):
+        for _ in range(len(smiles_list)):
             role_list.append(role)
-    product_smiles_list = Pick_productSMILES(reactions,i)
+    product_smiles_list = pick_productSMILES(reactions,r_idx)
     for prod in product_smiles_list:
-        prod_list = Dot_separate(prod)
+        prod_list = split_smarts(prod)
         product_list.extend(prod_list)
     return input_list,role_list,product_list
 
 '''SMARTS'''
-
-def Dot_separate(smarts):
+def split_smarts(smarts):
     smarts_list = []
     dot_num = smarts.count('.')
     if dot_num > 0:
@@ -110,8 +104,8 @@ def Dot_separate(smarts):
     return smarts_list
 
 
-def  Reaction_separate(reactions, i):
-    smarts = reactions[i]['identifiers'][0]['value']
+def split_reaction(reactions, r_idx):
+    smarts = reactions[r_idx]['identifiers'][0]['value']
     input_smarts_list = []
     input_list = []
     if '>>' in smarts:
@@ -131,11 +125,11 @@ def  Reaction_separate(reactions, i):
         
     #input
     for smarts in input_smarts_list:
-        smarts_list = Dot_separate(smarts)
+        smarts_list = split_smarts(smarts)
         input_list.extend(smarts_list)
     
     #product
-    product_list = Dot_separate(product_smarts)
+    product_list = split_smarts(product_smarts)
     
     """
     #input
@@ -150,7 +144,7 @@ def  Reaction_separate(reactions, i):
     return input_list, roles, product_list
 
 '''その他'''
-def Pick_Yield(reactions,i):
+def pick_Yield(reactions,i):
     Yield = 'NoData' 
     try:
         check = len(reactions[i]['outcomes'][0]['products'][0]['measurements'])
@@ -172,7 +166,7 @@ def Pick_Yield(reactions,i):
                 continue
     return Yield
 
-def Pick_temprature(reactions,i):
+def pick_temprature(reactions,i):
     try:
         temp = reactions[i]['conditions']['temperature']['setpoint']['value']
     except:
@@ -180,32 +174,24 @@ def Pick_temprature(reactions,i):
     return temp
 
 '''まとめ'''
-def Pick_reaction(reactions,i):
+def pick_reaction(reactions,i):
     first_check = len(reactions[i]['inputs'])
     if first_check == 0:  #smarts形式で入っているデータを判定
-        input_list, role_list, product_list = Reaction_separate(reactions,i) #smarts
+        input_list, role_list, product_list = split_reaction(reactions,i) #smarts
     else :
-        input_list, role_list, product_list = PicK_smiles(reactions, i) #smiles
-    Yield = Pick_Yield(reactions,i)
-    temp = Pick_temprature(reactions,i)
+        input_list, role_list, product_list = pick_smiles(reactions, i) #smiles
+    Yield = pick_Yield(reactions,i)
+    temp = pick_temprature(reactions,i)
     reaction_id = None
     if 'reaction_id' in reactions[i]:
         reaction_id = reactions[i]['reaction_id'] 
     else:
         reaction_id = reactions[i]['reactionId'] 
-    
+    ###
+    if reaction_id=="ord-0a0551b5bf3049c0a58006b54583054c":
+        print(product_list)
+    ###
     return reaction_id, input_list, role_list, temp, product_list, Yield
-
-
-# In[7]:
-
-
-#j_reactions = jsons[34]['reactions']
-#print(jsons[34])
-#Pick_reaction(j_reactions,0)
-
-
-# In[8]:
 
 
 name_list = []
@@ -228,7 +214,7 @@ for num, json in enumerate(jsons):
         name_list.append(file_name)
         
         #reactions
-        reaction_id, inputs, roles, temp, products, Yield= Pick_reaction(json_reactions,n)
+        reaction_id, inputs, roles, temp, products, Yield= pick_reaction(json_reactions,n)
         reaction_id_list.append(reaction_id)
         input_list.append(inputs)
         role_list.append(roles)
@@ -238,173 +224,103 @@ for num, json in enumerate(jsons):
     print('FINISH')
 
 
-# In[9]:
-
-
-input_df = pd.DataFrame({'smiles':input_list,
-                         'role':role_list})
-print('length of raction_list:',len(input_df.index))
+#input_df = pd.DataFrame({'smiles':input_list,
+#                         'role':role_list})
+print("... first step")
+print('length of input_list:',len(input_list))
+print('length of role_list:',len(role_list))
 print('length of temp_list:',len(temp_list))
 print('length of product_list:',len(product_list))
 print('length of yield_list:',len(yield_list))
 
+def sort_products(prod_list):
+    prod_list_w=[]
+    for el in prod_list:
+        try:
+            #mol = Chem.MolFromSmarts(el)
+            mol = Chem.MolFromSmiles(el)
+            Chem.SanitizeMol(mol)
+            prod_MW = rdMolDescriptors._CalcMolWt(mol)
+            prod_list_w.append((prod_MW,el))
+        except:
+            print(">>",el)
+            pass
+    new_prod_list=[smi for _, smi in sorted(prod_list_w,reverse=True)]
+    return new_prod_list
 
-# In[10]:
-
-
-def Product_selection(product_list): #分子量の最も大きいものを選出
-    product = product_list[0]
-    if len(product_list) > 1:
-        max_MW = 0
-        for prod in product_list:
-            try:
-                mol = Chem.MolFromSmarts(prod)
-                Chem.SanitizeMol(mol)
-                prod_MW = rdMolDescriptors._CalcMolWt(mol)
-                if prod_MW > max_MW:
-                    product = prod
-                    max_MW = prod_MW
-            except:
-                continue  
-    return product
-
-
-# In[11]:
-
-
-input_dic = {}
-empty = {'smiles':['NoData' for i in range(len(input_df.columns))],'tanimoto':['NoData' for i in range(len(input_df.columns))]}
-empty_df = pd.DataFrame(empty)
-for n in range(len(input_df.index)): #reactionごとに計算
+#empty = {
+#        'smiles':['NoData' for i in range(len(input_df.columns))],
+#        'tanimoto':['NoData' for i in range(len(input_df.columns))]}
+#empty_df = pd.DataFrame(empty)
+new_prod_list=[]
+new_input_list=[]
+new_role_list=[]
+new_tanimoto_list=[]
+for n in range(len(input_list)): #reactionごとに計算
     if n % 10000 == 0:
         print(n,'...',end='')
-    smiles = input_df['smiles'][n] #１つのreactionに用いるinputのSMILES
-    input_roles = input_df['role'][n]   #１つのreactionに用いるinputのrole
-    reaction_df= pd.DataFrame({'smiles':smiles, 'roles':input_roles}) #DataFrame化
+    input_smiles = input_list[n] #１つのreactionに用いるinputのSMILES
+    input_roles = role_list[n]   #１つのreactionに用いるinputのrole
     #Tanimoto係数
     mols = []   #１つのreactionに用いるinputのMolオブジェクト
-    for smile in smiles:
+    for smile in input_smiles:
         if smile is None or smile == 'NoData':
             mols.append('NoData')
         else:
             mols.append(Chem.MolFromSmiles(smile))
-    if len(product_list[n]) == 0:
-        input_dic[n] = empty_df
-        continue
-    max_prod = Product_selection(product_list[n])
-    prod = Chem.MolFromSmiles(max_prod)
-    if prod is None:
-        input_dic[n] = empty_df
-        continue
-    prod_fp = AllChem.GetMorganFingerprintAsBitVect(prod, 2, 2048)
-    if 'NoData' in mols:
-        morgan_fps = ['NoData' if mol == 'NoData' else AllChem.GetMorganFingerprintAsBitVect(mol, 2, 2048) for mol in mols]
-        false_num = [i for i, x in enumerate(morgan_fps) if x == 'NoData']
-        tanimoto = [-1.0 if l in false_num else DataStructs.TanimotoSimilarity(prod_fp,morgan_fps[l]) for l in range(len(morgan_fps))]
+    new_prods=[]
+    prod_fp=None
+    if len(product_list[n]) > 0:
+        new_prods = sort_products(product_list[n])
+        if len(new_prods)>0:
+            prod = Chem.MolFromSmiles(new_prods[0])
+            if prod is not None:
+                prod_fp = AllChem.GetMorganFingerprintAsBitVect(prod, 2, 2048)
+        else:
+            print("skip:",product_list[n],"=>",new_prods)
+    if prod_fp is not None:
+        if 'NoData' in mols:
+            morgan_fps = ['NoData' if mol == 'NoData' else AllChem.GetMorganFingerprintAsBitVect(mol, 2, 2048) for mol in mols]
+            false_num = [i for i, x in enumerate(morgan_fps) if x == 'NoData']
+            tanimoto = [-1.0 if l in false_num else DataStructs.TanimotoSimilarity(prod_fp,morgan_fps[l]) for l in range(len(morgan_fps))]
+        else:
+            morgan_fps = [AllChem.GetMorganFingerprintAsBitVect(mol, 2, 2048) for mol in mols]
+            tanimoto = DataStructs.BulkTanimotoSimilarity(prod_fp, morgan_fps)
+        #reaction_df['tanimoto'] = tanimoto
+        if not (len(input_smiles)==len(input_roles) and len(tanimoto)==len(input_smiles)):
+            print("Alert1:",n)
+        input_tuple_list=sorted([(a,b,c) for a,b,c in zip(tanimoto, input_smiles,input_roles)], reverse=True)
+        ###
+        new_input_list.append(   [b for a,b,c in input_tuple_list])
+        new_role_list.append(    [c for a,b,c in input_tuple_list])
+        new_tanimoto_list.append([a for a,b,c in input_tuple_list])
     else:
-        morgan_fps = [AllChem.GetMorganFingerprintAsBitVect(mol, 2, 2048) for mol in mols]
-        tanimoto = DataStructs.BulkTanimotoSimilarity(prod_fp, morgan_fps)
-    reaction_df['tanimoto'] = tanimoto
-    #sort
-    sort_reaction_df = reaction_df.sort_values('tanimoto', ascending=False).reset_index(drop=True)
-    input_dic[n] = sort_reaction_df
+        if not (len(input_smiles)==len(input_roles)):
+            print("Alert2:",n)
+        new_input_list.append(input_smiles)
+        new_role_list.append(input_roles)
+        new_tanimoto_list.append(["NoData" for _ in range(len(input_smiles))])
+    new_prod_list.append(new_prods)
 
+    #sort_reaction_df = reaction_df.sort_values('tanimoto', ascending=False).reset_index(drop=True)
+    #input_dic[n] = sort_reaction_df
 
-# In[12]:
+print("... second step")
+print('length of input_list:',len(new_input_list))
+print('length of role_list:',len(new_role_list))
+print('length of tanimoto_list:',len(new_tanimoto_list))
+print('length of prod_list:',len(new_prod_list))
 
-
-#input
-max_len = 0
-max_num = 0
-for n, key in enumerate(input_dic.keys()):
-    list_len = len(input_dic[key])
-    if max_len < list_len:
-        max_len = list_len
-print('max input number: ', max_len)
-
-
-# In[13]:
-
-
-#products
-p_max_len = 0
-p_max_num = 0
-for n, prods in enumerate(product_list):
-    list_len = len(prods)
-    if p_max_len < list_len:
-        p_max_len = list_len
-print('max product number: ', p_max_len)
-
-
-# In[14]:
-
-
-#input
-smiles_list = [ [] for i in range(max_len)]
-roles_list = [ [] for i in range(max_len)]
-tanimoto_list = [ [] for i in range(max_len)]
-for key in input_dic.keys():
-    if key % 10000 == 0:
-        print(key,'...',end='')
-    for i in range(max_len):
-        try:
-            smiles_list[i].append(input_dic[key]['smiles'][i])
-        except:
-            smiles_list[i].append('NoData')
-        try:
-            roles_list[i].append(input_dic[key]['roles'][i])
-        except:
-            roles_list[i].append('NoData')
-        try:
-            tanimoto_list[i].append(input_dic[key]['tanimoto'][i])
-        except:
-            tanimoto_list[i].append('NoData')
-
-
-# In[15]:
-
-
-#products
-prods_list = [ [] for i in range(p_max_len)]
-for n, prods in enumerate(product_list):
-    if n % 10000 == 0:
-        print(n,'...',end='')
-    for i in range(p_max_len):
-        try:
-            prods_list[i].append(prods[i])
-        except:
-            prods_list[i].append('NoData')
-
-print(len(smiles_list[0]))
-print(len(prods_list[0]))
 reaction_dict={'file_name': name_list,
-                             'reaction_id': reaction_id_list,
-                             'temp': temp_list,
-                             'yield': yield_list}
+            'reaction_id': reaction_id_list,
+            'smiles': new_input_list,
+            'role': new_role_list,
+            'tanimoto': new_tanimoto_list,
+            'products': new_prod_list,
+            'temp': temp_list,
+            'yield': yield_list}
 
-
-for n in range(len(prods_list)):
-    prods_name = 'products'+str(n)
-    reaction_dict[prods_name] = prods_list[n]
-for n in range(len(smiles_list)):
-    smiles_name = 'smiles'+str(n)
-    role_name = 'role'+str(n)
-    tanimoto_name = 'tanimoto'+str(n)
-    reaction_dict[smiles_name] = smiles_list[n]
-    reaction_dict[role_name] = roles_list[n]
-    reaction_dict[tanimoto_name] = tanimoto_list[n]
-
-
-# In[19]:
-
-import pickle
-with open('All_ord_reaction-data_nitpysrt_allsimles_dotsep.dict.pkl', 'wb') as f:
+with open('All_ord_reaction-data_nitpysrt_allsmiles_dotsep.dict0.pkl', 'wb') as f:
     pickle.dump(reaction_dict, f)
-
-reactions_df = pd.DataFrame(reaction_dict)
-print(reactions_df.shape)
-print(reactions_df)
-#pickle化
-reactions_df.to_pickle('All_ord_reaction-data_nitpysrt_allsmiles_dotsep.pkl')
 
 
